@@ -13,6 +13,7 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncoder.Callback {
     private static final String TAG = "TuyaMediaMuxer";
@@ -22,18 +23,52 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
     private MediaMuxer       mediaMuxer;
 
 
-    private        int     audioTrackIndex = -1;
-    private        int     videoTrackIndex = -1;
-    private        boolean isVideoAdd      = false;
-    private        boolean isAudioAdd      = false;
-    private static int     AUDIO_ONLY      = 0x1;
-    private static int     VIDEO_ONLY      = 0x2;
+    private        int     audioTrackIndex   = -1;
+    private        int     videoTrackIndex   = -1;
+    private        boolean isVideoAdd        = false;
+    private        boolean isAudioAdd        = false;
+    private        boolean isVideoFmtChanged = false;
+    private static int     AUDIO_ONLY        = 0x1;
+    private static int     VIDEO_ONLY        = 0x2;
     private        int     recordMode;
 
     private boolean isMediaMuxerStart = false;
 
-    private boolean isStartRecord;
-    private boolean isKeyFrameArrived;
+    private volatile boolean     isStartRecord;
+    private          boolean     isKeyFrameArrived;
+    private          Thread      writeThread;
+    private          MediaFormat audioFormat;
+    private          MediaFormat videoFormat;
+    private volatile boolean running;
+
+
+    class MediaTrackData {
+        long                  trackId;
+        MediaCodec.BufferInfo bufferInfo;
+        ByteBuffer            byteBuf;
+
+        public MediaTrackData(ByteBuffer byteBuf, int trackId, MediaCodec.BufferInfo bufferInfo) {
+            this.byteBuf = byteBuf;
+            this.trackId = trackId;
+            this.bufferInfo = bufferInfo;
+        }
+
+        long getTrackId() {
+            return trackId;
+        }
+
+        MediaCodec.BufferInfo getBufferInfo() {
+            return bufferInfo;
+        }
+
+        ByteBuffer getByteBuf() {
+            return byteBuf;
+        }
+
+    }
+
+    private LinkedBlockingQueue<MediaTrackData> mediaTrackData;
+
 
     public TuyaMediaMuxer() {
 
@@ -93,8 +128,16 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
                     width, height, 3000, videoBitrate, fps);
             tuyaVideoEncoder = new TuyaVideoEncoder(videoSettins, TuyaVideoEncoder.MimeType.H264, true, this);
         }
+        isAudioAdd = false;
+        isVideoAdd = false;
+        audioFormat = null;
+        videoFormat = null;
         isStartRecord = true;
         isKeyFrameArrived = false;
+        mediaTrackData = new LinkedBlockingQueue<>();
+        running = true;
+        writeThread = new Thread(writeTask);
+        writeThread.start();
         Log.e(TAG, "startRecord leave.");
 
         return 0;
@@ -106,37 +149,13 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
             return 0;
         }
         isStartRecord = false;
-
-        if (tuyaVideoEncoder != null) {
-            tuyaVideoEncoder.encodeEndOfStream();
-            tuyaVideoEncoder.release();
-            tuyaVideoEncoder = null;
+        running = false;
+        try {
+            writeThread.interrupt();
+            writeThread.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
-
-        if (tuyaAudioEncoder != null) {
-            tuyaAudioEncoder.encodeEndOfStream();
-            tuyaAudioEncoder.release();
-
-            tuyaAudioEncoder = null;
-        }
-
-        isAudioAdd = false;
-        isVideoAdd = false;
-        if (isMediaMuxerStart) {
-            try {
-                mediaMuxer.stop();
-            } catch (IllegalStateException e) {
-                e.printStackTrace();
-            }
-
-            try {
-                mediaMuxer.release();
-            } catch (IllegalStateException e) {
-                e.printStackTrace();
-            }
-        }
-        isMediaMuxerStart = false;
-
         return 0;
     }
 
@@ -172,13 +191,19 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
 
     @Override
     public synchronized void onAudioSample(ByteBuffer outBuf, MediaCodec.BufferInfo bufferInfo) {
-        if ((isMediaMuxerStart) && (isStartRecord)) {
-            if((!isKeyFrameArrived) && (recordMode == (VIDEO_ONLY+AUDIO_ONLY))) {
+        if (isStartRecord) {
+            if ((!isKeyFrameArrived) && (recordMode == (VIDEO_ONLY + AUDIO_ONLY))) {
                 Log.e(TAG, "Wait video key frame to write.");
                 return;
             }
             //Log.e(TAG, "Write audio ts " + bufferInfo.presentationTimeUs);
-            mediaMuxer.writeSampleData(audioTrackIndex, outBuf, bufferInfo);
+            //mediaMuxer.writeSampleData(audioTrackIndex, outBuf, bufferInfo);
+
+            try {
+                mediaTrackData.put(new MediaTrackData(outBuf, audioTrackIndex, bufferInfo));
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
 
     }
@@ -186,29 +211,21 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
     @Override
     public synchronized void onAddAudioTrack(MediaFormat format) {
         Log.d(TAG, "onAddAudioTrack " + format.toString());
-        if (mediaMuxer != null) {
-            audioTrackIndex = mediaMuxer.addTrack(format);
-            isAudioAdd = true;
-
-        }
-
-        if (!isMediaMuxerStart && (((isVideoAdd) && (isAudioAdd)) ||
-                ((recordMode == AUDIO_ONLY) && !isVideoAdd))
-        ) {
-            isMediaMuxerStart = true;
-            mediaMuxer.start();
-        }
+        audioFormat = format;
     }
 
     @Override
     public synchronized void onVideoFrame(ByteBuffer frame, MediaCodec.BufferInfo bufferInfo) {
-        if ((isMediaMuxerStart) && (isStartRecord)) {
-            if (!isKeyFrameArrived) {
-                tuyaVideoEncoder.requestKeyFrame(10L);
-                isKeyFrameArrived = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_SYNC_FRAME) != 0;
-            }
+        if (isStartRecord) {
+
             //Log.e(TAG, "Write video ts " + bufferInfo.presentationTimeUs + " key " + bufferInfo.flags);
-            mediaMuxer.writeSampleData(videoTrackIndex, frame, bufferInfo);
+            //mediaMuxer.writeSampleData(videoTrackIndex, frame, bufferInfo);
+
+            try {
+                mediaTrackData.put(new MediaTrackData(frame, videoTrackIndex, bufferInfo));
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
 
     }
@@ -216,19 +233,95 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
     @Override
     public synchronized void onAddVideoTrack(MediaFormat format) {
         Log.d(TAG, "onAddVideoTrack " + format.toString());
-
-        if (mediaMuxer != null) {
-            videoTrackIndex = mediaMuxer.addTrack(format);
-            isVideoAdd = true;
-
-        }
-        if (!isMediaMuxerStart && (((isVideoAdd) && (isAudioAdd)) ||
-                ((recordMode == VIDEO_ONLY) && !isAudioAdd))
-        ) {
-            isMediaMuxerStart = true;
-            mediaMuxer.start();
-        }
-
+        videoFormat = format;
     }
 
+    Runnable writeTask = new Runnable() {
+        @Override
+        public void run() {
+
+            while (running && !Thread.interrupted()) {
+                try {
+                    MediaTrackData data = mediaTrackData.take();
+
+                    if (!isVideoAdd && videoFormat != null) {
+                        videoTrackIndex = mediaMuxer.addTrack(videoFormat);
+                        isVideoAdd = true;
+
+                        if (!isMediaMuxerStart && (((isVideoAdd) && (isAudioAdd)) ||
+                                ((recordMode == AUDIO_ONLY) && !isVideoAdd))
+                        ) {
+                            isMediaMuxerStart = true;
+                            mediaMuxer.start();
+                        }
+                    }
+
+                    if (!isAudioAdd && audioFormat != null) {
+                       audioTrackIndex =  mediaMuxer.addTrack(audioFormat);
+                        isAudioAdd = true;
+                        if (!isMediaMuxerStart && (((isVideoAdd) && (isAudioAdd)) ||
+                                ((recordMode == VIDEO_ONLY) && !isAudioAdd))
+                        ) {
+                            isMediaMuxerStart = true;
+                            mediaMuxer.start();
+                        }
+                    }
+
+
+                    if (isMediaMuxerStart) {
+                        if (data.getTrackId() == audioTrackIndex) {
+                            mediaMuxer.writeSampleData(audioTrackIndex, data.getByteBuf(), data.getBufferInfo());
+                        } else if (data.getTrackId() == videoTrackIndex) {
+                            if (!isKeyFrameArrived) {
+                                MediaCodec.BufferInfo bufferInfo = data.getBufferInfo();
+                                tuyaVideoEncoder.requestKeyFrame(10L);
+                                isKeyFrameArrived = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_SYNC_FRAME) != 0;
+                            }
+                            mediaMuxer.writeSampleData(videoTrackIndex, data.getByteBuf(), data.getBufferInfo());
+                        }
+                    }
+
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            Log.e(TAG, "BBBS" + running);
+            mediaTrackData.clear();
+            stopRecoredThread();
+        }
+    };
+
+
+    private void stopRecoredThread() {
+        if (tuyaVideoEncoder != null) {
+            tuyaVideoEncoder.encodeEndOfStream();
+            tuyaVideoEncoder.release();
+            tuyaVideoEncoder = null;
+        }
+
+        if (tuyaAudioEncoder != null) {
+            tuyaAudioEncoder.encodeEndOfStream();
+            tuyaAudioEncoder.release();
+
+            tuyaAudioEncoder = null;
+        }
+
+        isAudioAdd = false;
+        isVideoAdd = false;
+        if (isMediaMuxerStart) {
+            try {
+                mediaMuxer.stop();
+            } catch (IllegalStateException e) {
+                e.printStackTrace();
+            }
+
+            try {
+                mediaMuxer.release();
+            } catch (IllegalStateException e) {
+                e.printStackTrace();
+            }
+        }
+        isMediaMuxerStart = false;
+
+    }
 }
