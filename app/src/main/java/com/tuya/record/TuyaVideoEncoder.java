@@ -31,6 +31,7 @@ public class TuyaVideoEncoder {
 
     private volatile boolean running;
     private boolean endOfStream;
+    private long videoTimestampBase;
 
     private static final int MEDIA_CODEC_RELEASE_TIMEOUT_MS = 5000;
     private static final int DEQUEUE_OUTPUT_BUFFER_TIMEOUT_US = 10000;
@@ -118,6 +119,7 @@ public class TuyaVideoEncoder {
         this.mimeType = mime;
         this.isEncodeReady = false;
         this.endOfStream = false;
+        this.videoTimestampBase = 0L;
 
 
     }
@@ -125,7 +127,7 @@ public class TuyaVideoEncoder {
         if (codec != null) {
             return VideoCodecStatus.OK;
         }
-
+        videoTimestampBase = 0L;
         Log.i(TAG, "initVideoParam width: "+settings.width+" height: "+settings.height+ " fps: "+ settings.fps + " IframeInterval: " +
                 settings.keyFrameIntervalSec + " bitrate: " + settings.bitrate );
         supportColorFormatList = new ArrayList<>();
@@ -257,7 +259,14 @@ public class TuyaVideoEncoder {
     private VideoCodecStatus encodeByteBuffer(
             VideoFrame videoFrame, int bufferSize) {
         // Frame timestamp rounded to the nearest microsecond.
-        long presentationTimestampUs = (videoFrame.getTimestampNs() + 500) / 1000;
+
+        long presentationTimestampUs = System.currentTimeMillis()*1000;
+        if (videoTimestampBase == 0L) {
+            videoTimestampBase = presentationTimestampUs;
+        }
+
+        long relativeTS = presentationTimestampUs - videoTimestampBase;
+
 
         // No timeout.  Don't block for an input buffer, drop frames if the encoder falls behind.
         int index;
@@ -286,7 +295,7 @@ public class TuyaVideoEncoder {
 
         try {
             codec.queueInputBuffer(
-                    index, 0 /* offset */, bufferSize, presentationTimestampUs, 0 /* flags */);
+                    index, 0 /* offset */, bufferSize, relativeTS, 0 /* flags */);
         } catch (IllegalStateException e) {
             Log.e(TAG, "queueInputBuffer failed", e);
             // IllegalStateException thrown when the codec is in the wrong state.

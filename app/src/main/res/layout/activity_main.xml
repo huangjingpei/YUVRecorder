@@ -30,9 +30,19 @@
         android:text="stopRecrod"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintTop_toTopOf="@+id/btnStartRecord"
-        app:layout_constraintBottom_toBottomOf="@id/btnShareMedia"
+        app:layout_constraintBottom_toBottomOf="@id/changeResolution"
         />
 
+    <Button
+        android:id="@+id/changeResolution"
+        android:layout_width="160dp"
+        android:layout_height="40dp"
+        android:onClick="onClick"
+        android:text="changeResolution"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/btnStopRecord"
+        app:layout_constraintBottom_toBottomOf="@id/btnShareMedia"
+        />
     <Button
         android:id="@+id/btnShareMedia"
         android:layout_width="160dp"
@@ -40,6 +50,7 @@
         android:onClick="onClick"
         android:text="shareMedia"
         app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/changeResolution"
         app:layout_constraintBottom_toBottomOf="parent"
         />
 

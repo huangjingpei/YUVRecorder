@@ -9,6 +9,8 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 
+import com.erick.utils.libyuv.YuvUtils;
+
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
@@ -19,30 +21,32 @@ import static android.hardware.Camera.Parameters.PREVIEW_FPS_MAX_INDEX;
 import static android.hardware.Camera.Parameters.PREVIEW_FPS_MIN_INDEX;
 
 public class VideoSource {
-    private static final String TAG = "VideoSource";
-    private int preWidth;
-    private int preHeight;
-    private int frameRate;
-    private static VideoSource mCameraWrapper;
+    private static final String      TAG = "VideoSource";
+    private              int         preWidth;
+    private              int         preHeight;
+    private              int         frameRate;
+    private static       VideoSource mCameraWrapper;
 
     // 定义系统所用的照相机
-    private Camera mCamera;
+    private Camera                mCamera;
     //预览尺寸
-    private Camera.Size previewSize;
-    private Camera.Parameters mCameraParamters;
-    private boolean mIsPreviewing = false;
+    private Camera.Size           previewSize;
+    private Camera.Parameters     mCameraParamters;
+    private boolean               mIsPreviewing = false;
     private CameraPreviewCallback mCameraPreviewCallback;
 
-    private Callback mCallback;
+    private Callback              mCallback;
     private CameraOperateCallback cameraCb;
-    private Context mContext;
+    private Context               mContext;
+    private boolean mbChangeVdieoSouce;
 
     private VideoSource() {
     }
 
     public interface CameraOperateCallback {
         public void cameraHasOpened();
-        public void cameraHasPreview(int width,int height,int fps);
+
+        public void cameraHasPreview(int width, int height, int fps);
     }
 
     public interface Callback {
@@ -68,7 +72,7 @@ public class VideoSource {
     public void doOpenCamera(CameraOperateCallback callback) {
         Log.i(TAG, "doOpenCamera camera open....");
         cameraCb = callback;
-        if(mCamera != null)
+        if (mCamera != null)
             return;
         if (mCamera == null) {
             Log.i(TAG, "doOpenCamera No front-facing camera found; opening default");
@@ -100,15 +104,15 @@ public class VideoSource {
         mCamera.autoFocus(new Camera.AutoFocusCallback() {
             @Override
             public void onAutoFocus(boolean success, Camera camera) {
-                Log.i(TAG, "doStartPreview onAutoFocus----->success: "+success);
+                Log.i(TAG, "doStartPreview onAutoFocus----->success: " + success);
             }
         });
         Log.i(TAG, "doStartPreview Camera Preview Started...");
-        cameraCb.cameraHasPreview(preWidth,preHeight,frameRate);
+        cameraCb.cameraHasPreview(preWidth, preHeight, frameRate);
     }
 
     public void doStopCamera() {
-        Log.i(TAG, "doStopCamera  mCamera: "+mCamera+"   mCameraWrapper: "+mCameraWrapper);
+        Log.i(TAG, "doStopCamera  mCamera: " + mCamera + "   mCameraWrapper: " + mCameraWrapper);
         // 如果camera不为null，释放摄像头
         if (mCamera != null) {
             mCamera.setPreviewCallbackWithBuffer(null);
@@ -120,7 +124,7 @@ public class VideoSource {
             mCamera = null;
         }
 
-        if(mCameraWrapper != null){
+        if (mCameraWrapper != null) {
             mCallback = null;
             cameraCb = null;
             mContext = null;
@@ -132,13 +136,13 @@ public class VideoSource {
         if (!mIsPreviewing && mCamera != null) {
             mCameraParamters = mCamera.getParameters();
             List<Integer> previewFormats = mCameraParamters.getSupportedPreviewFormats();
-            for(int i=0;i<previewFormats.size();i++){
-                Log.i(TAG,"setCameraParamter support preview format : "+previewFormats.get(i));
+            for (int i = 0; i < previewFormats.size(); i++) {
+                Log.i(TAG, "setCameraParamter support preview format : " + previewFormats.get(i));
             }
             mCameraParamters.setPreviewFormat(ImageFormat.NV21);//ImageFormat.NV21
             // Set preview size.
             List<Camera.Size> supportedPreviewSizes = mCameraParamters.getSupportedPreviewSizes();
-            for (Camera.Size size: supportedPreviewSizes) {
+            for (Camera.Size size : supportedPreviewSizes) {
                 Log.i(TAG, "setCameraParamter support preview size : W:" + size.width + " H:" + size.height);
             }
 
@@ -180,30 +184,30 @@ public class VideoSource {
                 }
             }
             //设置相机预览帧率
-            Log.i(TAG, "===setCameraParamter==defminFps:" + defminFps+"    defmaxFps: "+defmaxFps);
-            mCameraParamters.setPreviewFpsRange(defminFps,defmaxFps);
+            Log.i(TAG, "===setCameraParamter==defminFps:" + defminFps + "    defmaxFps: " + defmaxFps);
+            mCameraParamters.setPreviewFpsRange(defminFps, defmaxFps);
             frameRate = defmaxFps / 1000;
             surfaceHolder.setFixedSize(previewSize.width, previewSize.height);
             mCameraPreviewCallback = new CameraPreviewCallback();
-            mCamera.addCallbackBuffer(new byte[previewSize.width * previewSize.height*3/2]);
+            mCamera.addCallbackBuffer(new byte[previewSize.width * previewSize.height * 3 / 2]);
             mCamera.setPreviewCallbackWithBuffer(mCameraPreviewCallback);
             List<String> focusModes = mCameraParamters.getSupportedFocusModes();
-            for (String focusMode : focusModes){//检查支持的对焦
+            for (String focusMode : focusModes) {//检查支持的对焦
                 Log.i(TAG, "===setCameraParamter===focusMode:" + focusMode);
-                if (focusMode.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)){
+                if (focusMode.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)) {
                     mCameraParamters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
-                }else if (focusMode.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)){
+                } else if (focusMode.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
                     mCameraParamters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
-                }else if(focusMode.contains(Camera.Parameters.FOCUS_MODE_AUTO)){
+                } else if (focusMode.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
                     mCameraParamters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
                 }
             }
-            Log.i(TAG, "==setCameraParamter==preWidth:" + preWidth+"   preHeight: "+preHeight+"  frameRate: "+frameRate);
+            Log.i(TAG, "==setCameraParamter==preWidth:" + preWidth + "   preHeight: " + preHeight + "  frameRate: " + frameRate);
             mCamera.setParameters(mCameraParamters);
         }
     }
 
-    private void setCameraDisplayOrientation(Activity activity,int cameraId) {
+    private void setCameraDisplayOrientation(Activity activity, int cameraId) {
         android.hardware.Camera.CameraInfo info =
                 new android.hardware.Camera.CameraInfo();
         android.hardware.Camera.getCameraInfo(cameraId, info);
@@ -232,7 +236,7 @@ public class VideoSource {
         } else {  // back-facing
             result = (info.orientation - degrees + 360) % 360;
         }
-        Log.i(TAG, "=====setCameraDisplayOrientation=====result:" + result+"  rotation: "+rotation+"  degrees: "+degrees+"  orientation: "+info.orientation);
+        Log.i(TAG, "=====setCameraDisplayOrientation=====result:" + result + "  rotation: " + rotation + "  degrees: " + degrees + "  orientation: " + info.orientation);
         mCamera.setDisplayOrientation(result);
     }
 
@@ -248,19 +252,31 @@ public class VideoSource {
 
             //通过回调,拿到的data数据是原始数据
             //丢给VideoRunnable线程,使用MediaCodec进行h264编码操作
-            if(data != null){
+            if (data != null) {
                 camera.getParameters();
 
-                if(mCallback != null) {
-                    int length = size.width*size.height*3/2;
-                    byte[] nv12 = new byte[length];
-                    NV21ToNV12(data, nv12);
+                if (mCallback != null) {
+                    byte[] nv12 = null;
+                    int length = size.width * size.height * 3 / 2;
+                    if (mbChangeVdieoSouce) {
+                        byte[] i420Buffer = new byte[length];
+                        byte[] i420Buffer360p = new byte[640 * 360 * 3 / 2];
+                        byte[] nv21Buffer360p = new byte[640 * 360 * 3 / 2];
+                        nv12 = new byte[640 * 360 * 3 / 2];
+                        YuvUtils.yuvCompress(data, size.width, size.height, i420Buffer, size.width, size.height, 0, 0, false);
+                        YuvUtils.yuvScaleI420(i420Buffer, size.width, size.height, i420Buffer360p, 640, 360, 0);
+                        YuvUtils.yuvI420ToNV21(i420Buffer360p, 640, 360, nv21Buffer360p);
+                        NV21ToNV12(nv21Buffer360p, nv12);
+                    } else {
+                        nv12 = new byte[length];
+                        NV21ToNV12(data, nv12);
+                    }
+
                     mCallback.sendVideoData(nv12, fmt, size.width, size.height, frameRate, System.currentTimeMillis());
                 }
                 camera.addCallbackBuffer(data);
-            }
-            else {
-                camera.addCallbackBuffer(new byte[size.width * size.height *3/2]);
+            } else {
+                camera.addCallbackBuffer(new byte[size.width * size.height * 3 / 2]);
             }
         }
     }
@@ -273,6 +289,10 @@ public class VideoSource {
             nv12[i + 1] = nv21[i];
             nv12[i] = nv21[i + 1];
         }
+    }
+
+    public void changeVideoSourceTo360() {
+        mbChangeVdieoSouce = !mbChangeVdieoSouce;
     }
 
 }

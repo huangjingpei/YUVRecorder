@@ -285,7 +285,6 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
                     e.printStackTrace();
                 }
             }
-            Log.e(TAG, "BBBS" + running);
             mediaTrackData.clear();
             stopRecoredThread();
         }
@@ -294,13 +293,13 @@ public class TuyaMediaMuxer implements TuyaVideoEncoder.Callback, TuyaAudioEncod
 
     private void stopRecoredThread() {
         if (tuyaVideoEncoder != null) {
-            tuyaVideoEncoder.encodeEndOfStream();
+            //tuyaVideoEncoder.encodeEndOfStream();
             tuyaVideoEncoder.release();
             tuyaVideoEncoder = null;
         }
 
         if (tuyaAudioEncoder != null) {
-            tuyaAudioEncoder.encodeEndOfStream();
+            //tuyaAudioEncoder.encodeEndOfStream();
             tuyaAudioEncoder.release();
 
             tuyaAudioEncoder = null;

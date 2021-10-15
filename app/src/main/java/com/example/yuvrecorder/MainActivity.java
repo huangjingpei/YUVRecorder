@@ -31,6 +31,7 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
     private              boolean        bStarted;
     private              Button         btnStart;
     private              Button         btnStop;
+    private Button btnChange;
     private Button btnShare;
     private              SurfaceView    mSurfaceView;
     private              SurfaceHolder  mSurfaceHolder;
@@ -72,6 +73,9 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
 
         btnShare = (Button) findViewById(R.id.btnShareMedia);
         btnShare.setOnClickListener(this);
+
+        btnChange = (Button) findViewById(R.id.changeResolution);
+        btnChange.setOnClickListener(this);
 
         mSurfaceView = (SurfaceView) findViewById(R.id.surfaceView);
         mSurfaceView.setKeepScreenOn(true);
@@ -209,6 +213,14 @@ public class MainActivity extends AppCompatActivity implements  View.OnClickList
             btnStart.setEnabled(true);
         } else if (v.getId() == R.id.btnShareMedia) {
             shareMedia(this, mp4File, false);
+        } else if(v.getId() == R.id.changeResolution) {
+            changeVideoTo360P();
+        }
+    }
+
+    private void changeVideoTo360P() {
+        if (mVideoSource != null) {
+            mVideoSource.changeVideoSourceTo360();
         }
     }
 

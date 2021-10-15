@@ -30,6 +30,7 @@ public class TuyaAudioEncoder {
     private volatile boolean running;
     private TuyaRingBuffer tuyaRingBuffer;
     private boolean endOfStream;
+    private long audioTimestampBase;
 
 
     private static final int MEDIA_CODEC_RELEASE_TIMEOUT_MS = 5000;
@@ -76,10 +77,12 @@ public class TuyaAudioEncoder {
         tuyaRingBuffer = new TuyaRingBuffer(1024*50);
         intputBuffer = new byte[2048];
         this.endOfStream = false;
+        this.audioTimestampBase = 0L;
     }
 
 
     public AudioCodecStatus initEncode() {
+        audioTimestampBase = 0L;
         MediaCodecInfo audioCodecInfo = selectCodec(MimeType.AAC.mimeType());
         if (audioCodecInfo == null) {
             Log.e(TAG, "initAudioParam Unable to find an appropriate codec for " + MimeType.AAC.mimeType());
@@ -170,6 +173,11 @@ public class TuyaAudioEncoder {
         }
 
         long presentationTimestampUs = System.currentTimeMillis()*1000;
+        if (audioTimestampBase == 0L) {
+            audioTimestampBase = presentationTimestampUs;
+        }
+        long relativeTS = presentationTimestampUs - audioTimestampBase;
+
 
         // No timeout.  Don't block for an input buffer, drop frames if the encoder falls behind.
         int index;
@@ -198,7 +206,7 @@ public class TuyaAudioEncoder {
 
         try {
             codec.queueInputBuffer(
-                    index, 0 /* offset */, intputBuffer.length, presentationTimestampUs, 0 /* flags */);
+                    index, 0 /* offset */, intputBuffer.length, relativeTS, 0 /* flags */);
         } catch (IllegalStateException e) {
             Log.e(TAG, "queueInputBuffer failed", e);
             // IllegalStateException thrown when the codec is in the wrong state.
